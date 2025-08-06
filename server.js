@@ -9,7 +9,7 @@ app.use(express.urlencoded({ extended: true }));
 
 const planificadorRoutes = require("./routes/planificador");
 const planningRoutes = require("./routes/planning");
-const gestionClientesRoutes = require("./routes/gestionClientes"); 
+const gestionClientesRoutes = require("./routes/GestionClientes");
 const albaranesRoutes = require("./routes/albaranes");
 
 app.use("/api/planificador", planificadorRoutes);
