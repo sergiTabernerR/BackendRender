@@ -340,6 +340,54 @@ res.status(500).json({ error: "Texto descriptivo", detalle: err.message });
   }
 });
 
+// DELETE /api/planning/deleteCombinadoRow?anio=2025&semana=32&orden=5
+router.delete("/deleteCombinadoRow", async (req, res) => {
+  const { anio, semana, orden } = req.query;
+  if (!anio || !semana || !orden) {
+    return res.status(400).send("Parámetros inválidos (anio, semana, orden).");
+  }
+
+  const tx = new sql.Transaction();
+
+  try {
+    await tx.begin();
+
+    // 1) Borrar la fila en Subida y Bajada con ese Orden
+    await new sql.Request(tx)
+      .input("Anio", sql.Int, anio)
+      .input("Semana", sql.Int, semana)
+      .input("Orden", sql.Int, orden)
+      .query(`
+        DELETE FROM PlanningSubida WHERE Anio = @Anio AND Semana = @Semana AND Orden = @Orden;
+        DELETE FROM PlanningBajada WHERE Anio = @Anio AND Semana = @Semana AND Orden = @Orden;
+        DELETE FROM PlanningSemanalOcultos WHERE Anio = @Anio AND Semana = @Semana AND Orden = @Orden;
+      `);
+
+    // 2) Reindexar (decrementar) las filas posteriores
+    await new sql.Request(tx)
+      .input("Anio", sql.Int, anio)
+      .input("Semana", sql.Int, semana)
+      .input("Orden", sql.Int, orden)
+      .query(`
+        UPDATE PlanningSubida SET Orden = Orden - 1
+          WHERE Anio = @Anio AND Semana = @Semana AND Orden > @Orden;
+
+        UPDATE PlanningBajada SET Orden = Orden - 1
+          WHERE Anio = @Anio AND Semana = @Semana AND Orden > @Orden;
+
+        UPDATE PlanningSemanalOcultos SET Orden = Orden - 1
+          WHERE Anio = @Anio AND Semana = @Semana AND Orden > @Orden;
+      `);
+
+    await tx.commit();
+    res.json({ ok: true });
+  } catch (err) {
+    await tx.rollback().catch(() => {});
+    console.error("❌ Error en deleteCombinadoRow:", err);
+    res.status(500).json({ error: "No se pudo borrar la fila", detalle: err.message });
+  }
+});
+
 
 
 router.post("/saveSubidas", async (req, res) => {
