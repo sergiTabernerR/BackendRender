@@ -221,15 +221,21 @@ router.post("/imputarDesdeBajada", async (req, res) => {
   }
 });
 
-router.post("/imputarDesdePantalla", async (req, res) => {
-  const {
-    anio,
-    semana,
-    fila,
-    subida,
-    bajada
-  } = req.body;
+// Función para obtener precio de venta
+async function getPrecioVenta(pool, codigoArticulo) {
+  if (!codigoArticulo) return 0;
+  const result = await pool.request()
+    .input("CodigoArticulo", sql.VarChar, codigoArticulo)
+    .query(`
+      SELECT PrecioVenta
+      FROM Articulos
+      WHERE CodigoArticulo = @CodigoArticulo
+    `);
+  return result.recordset[0]?.PrecioVenta || 0;
+}
 
+router.post("/imputarDesdePantalla", async (req, res) => {
+  const { anio, semana, fila, subida, bajada } = req.body;
   const parseDate = (str) => {
     if (!str || typeof str !== "string") return null;
     const [yyyy, mm, dd] = str.split("-");
@@ -238,6 +244,15 @@ router.post("/imputarDesdePantalla", async (req, res) => {
 
   try {
     const pool = await sql.connect(config);
+
+    // 🔍 Buscar precios si no vienen del front
+    const precioSubida = subida.Preu
+      ? parseFloat(subida.Preu)
+      : await getPrecioVenta(pool, subida.CodigoArticulo);
+
+    const precioBajada = bajada.Preu2
+      ? parseFloat(bajada.Preu2)
+      : await getPrecioVenta(pool, bajada.CodigoArticulo);
 
     // 🔼 Insertar SUBIDA
     await pool.request()
@@ -250,18 +265,17 @@ router.post("/imputarDesdePantalla", async (req, res) => {
       .input("DataCarrega", sql.Date, parseDate(subida.Data))
       .input("Client", sql.NVarChar, subida.Client || null)
       .input("CodigoCliente", sql.VarChar, subida.CodigoCliente || null)
-    //  .input("LlocCarrega", sql.NVarChar, subida["Lloc Carrega"] || null)
-        .input("LlocCarrega", "")
-      .input("Preu", sql.Decimal(10, 2), parseFloat(subida.Preu) || 0)
+      .input("LlocCarrega", "")
+      .input("Preu", sql.Decimal(10, 2), precioSubida)
+      .input("PreuSubida", sql.Decimal(10, 2), precioSubida)
       .input("DataDescarga", sql.Date, parseDate(subida.Data2))
-    //  .input("LlocDescarga", sql.NVarChar, subida["Lloc Descarga"] || null)
       .input("LlocDescarga", "")
       .input("EUR", sql.Decimal(10, 2), 0)
       .query(`
         INSERT INTO PlanningSubida 
-        (Anio, Semana, Orden, Remolc, Tractor, Xofer, DataCarrega, Client, CodigoCliente, LlocCarrega, Preu, DataDescarga, LlocDescarga, EUR)
+        (Anio, Semana, Orden, Remolc, Tractor, Xofer, DataCarrega, Client, CodigoCliente, LlocCarrega, Preu, PreuSubida, DataDescarga, LlocDescarga, EUR)
         VALUES 
-        (@Anio, @Semana, @Orden, @Remolc, @Tractor, @Xofer, @DataCarrega, @Client, @CodigoCliente, @LlocCarrega, @Preu, @DataDescarga, @LlocDescarga, @EUR)
+        (@Anio, @Semana, @Orden, @Remolc, @Tractor, @Xofer, @DataCarrega, @Client, @CodigoCliente, @LlocCarrega, @Preu, @PreuSubida, @DataDescarga, @LlocDescarga, @EUR)
       `);
 
     // 🔽 Insertar BAJADA
@@ -275,23 +289,19 @@ router.post("/imputarDesdePantalla", async (req, res) => {
       .input("DataCarrega", sql.Date, parseDate(bajada.Data3))
       .input("Client", sql.NVarChar, bajada.Cliente || null)
       .input("CodigoCliente", sql.VarChar, bajada.CodigoCliente || null)
-  //    .input("LlocCarrega", sql.NVarChar, bajada["Lloc Carrega2"] || null)
-            .input("LlocCarrega", "")
-
-      .input("Preu", sql.Decimal(10, 2), parseFloat(bajada.Preu2) || 0)
+      .input("LlocCarrega", "")
+      .input("Preu", sql.Decimal(10, 2), precioBajada)
+      .input("PreuBajada", sql.Decimal(10, 2), precioBajada)
       .input("DataDescarga", sql.Date, parseDate(bajada.Data4))
-    //  .input("LlocDescarga", sql.NVarChar, bajada["Lloc Descarga2"] || null)
       .input("LlocDescarga", "")
-
       .input("EUR", sql.Decimal(10, 2), parseFloat(bajada.EUR) || 0)
       .query(`
         INSERT INTO PlanningBajada 
-        (Anio, Semana, Orden, Remolc, Tractor, Xofer, DataCarrega, Client, CodigoCliente, LlocCarrega, Preu, DataDescarga, LlocDescarga, EUR)
+        (Anio, Semana, Orden, Remolc, Tractor, Xofer, DataCarrega, Client, CodigoCliente, LlocCarrega, Preu, PreuBajada, DataDescarga, LlocDescarga, EUR)
         VALUES 
-        (@Anio, @Semana, @Orden, @Remolc, @Tractor, @Xofer, @DataCarrega, @Client, @CodigoCliente, @LlocCarrega, @Preu, @DataDescarga, @LlocDescarga, @EUR)
+        (@Anio, @Semana, @Orden, @Remolc, @Tractor, @Xofer, @DataCarrega, @Client, @CodigoCliente, @LlocCarrega, @Preu, @PreuBajada, @DataDescarga, @LlocDescarga, @EUR)
       `);
 
-    console.log(`✅ Subida y Bajada imputadas correctamente en fila ${fila + 1}`);
     res.status(200).json({ ok: true });
   } catch (err) {
     console.error("❌ Error imputando subida/bajada:", err);
