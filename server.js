@@ -11,11 +11,16 @@ const planificadorRoutes = require("./routes/planificador");
 const planningRoutes = require("./routes/planning");
 const gestionClientesRoutes = require("./routes/GestionClientes");
 const albaranesRoutes = require("./routes/albaranes");
+const transportRoutes = require("./routes/transport");
+
+// ...
+app.use("/api/transport", transportRoutes);
 
 app.use("/api/planificador", planificadorRoutes);
 app.use("/api/planning", planningRoutes);
 app.use("/api/clientes", gestionClientesRoutes); // esta línea ya está bien
 app.use("/api/albaranes", albaranesRoutes);
+app.use("/api/transport", transportRoutes);
 
 const PORT = 3001;
 app.listen(PORT, () => {
