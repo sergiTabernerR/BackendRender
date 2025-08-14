@@ -86,6 +86,42 @@ router.get("/", async (req, res) => {
     res.status(500).send("Error al obtener clientes: " + error.message);
   }
 });
+
+// fuera de la ruta, reutilizable
+const parseFechaExcel = (raw) => {
+  if (raw == null || raw === "" || raw === "-") return null;
+
+  // 1) Serial de Excel (número)
+  if (typeof raw === "number") {
+    try {
+      const d = xlsx.SSF.parse_date_code(raw);
+      if (!d || !d.y) return null;
+      // cuidado: meses base 0
+      const dt = new Date(Date.UTC(d.y, (d.m || 1) - 1, d.d || 1, d.H || 0, d.M || 0, Math.floor(d.S || 0)));
+      return isNaN(dt.getTime()) ? null : dt;
+    } catch { return null; }
+  }
+
+  // 2) Texto — normaliza separadores y orden
+  const s = String(raw).trim();
+
+  // yyyy-mm-dd o ISO
+  const tISO = Date.parse(s);
+  if (!isNaN(tISO)) return new Date(tISO);
+
+  // dd/mm/yyyy o dd-mm-yyyy
+  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (m) {
+    const d = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10) - 1;
+    const y = parseInt(m[3].length === 2 ? "20" + m[3] : m[3], 10);
+    const dt = new Date(Date.UTC(y, mo, d));
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+
+  return null; // no reconocida
+};
+
 // En routes/gestionArticulos.js (por ejemplo)
 router.get("/articulos", async (req, res) => {
   try {
@@ -165,8 +201,13 @@ WHEN NOT MATCHED THEN INSERT (
           CodigoSubfamilia: (fila["Subfamilia"] || "").toString().trim() || "",
           GrupoTalla_: (fila["GrupoTalla_"] || "").toString().trim() || "",
           Colores_: (fila["Colores_"] || "").toString().trim() || "",
-          PrecioVenta: fila["Precio venta"] ?? 0,
-          FechaAlta: fila["Fecha alta"] ? new Date(fila["Fecha alta"]) : null,
+  PrecioVenta: (() => {
+    const v = fila["Precio venta"];
+    if (v == null || v === "") return 0;
+    const n = Number(String(v).replace(",", "."));
+    return Number.isFinite(n) ? n : 0;
+  })(),
+  FechaAlta: parseFechaExcel(fila["Fecha alta"] ?? fila["Fecha Alta"]),
           ObsoletoLc: fila["Obsoleto"] === "Sí" ? 1 : 0,
           TipoArticulo: fila["Tipo artículo"],
           Descripcion2Articulo: (fila["Descripción (cont.)"] || "").toString().trim() || "",
@@ -187,9 +228,12 @@ WHEN NOT MATCHED THEN INSERT (
           request.input("GrupoTalla_", sql.VarChar, truncar(fila.GrupoTalla_, 20));
           request.input("Colores_", sql.VarChar, truncar(fila.Colores_, 20));
           request.input("PrecioVenta", sql.Decimal(28, 10), fila.PrecioVenta);
-          request.input("FechaAlta", sql.DateTime, fila.FechaAlta);
+request.input("FechaAlta", sql.DateTime, fila.FechaAlta || null);
           request.input("ObsoletoLc", sql.SmallInt, fila.ObsoletoLc);
           request.input("TipoArticulo", sql.VarChar, truncar(fila.TipoArticulo, 1));
+if (fila["Fecha alta"] && !fila.FechaAlta) {
+  console.warn(`FechaAlta inválida en Artículos -> "${fila["Fecha alta"]}" (fila Excel ${i+2})`);
+}
 
           const upsertQuery = `
 MERGE INTO Articulos AS target
