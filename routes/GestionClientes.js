@@ -447,55 +447,44 @@ WHEN NOT MATCHED THEN INSERT (
           await req.query(upsertConductores);
         }
       }
-// === REMOLQUES ===
+      // === REMOLQUES ===
 if (
   file.originalname.toLowerCase().includes("remolque") ||
-  file.originalname.toLowerCase().includes("trailer")
-) {
-  const clean = (v, max) =>
-    (v ?? "").toString().trim().substring(0, max ?? 9999);
+  file.originalname.toLowerCase().includes("trailer") ||
+    file.originalname.toLowerCase().includes("remolqs")
 
+) {
+  const clean = (v, max) => (v ?? "").toString().trim().substring(0, max ?? 9999);
   const toBit = (raw) => {
     if (raw == null) return null;
     const s = String(raw).trim().toLowerCase();
     if (["verdadero","true","sí","si","1","x","y","yes"].includes(s)) return 1;
     if (["falso","false","no","0",""].includes(s)) return 0;
+    // también acepta boolean JS
     if (raw === true) return 1;
     if (raw === false) return 0;
     return null;
   };
-
   const toInt = (raw) => {
     if (raw == null || raw === "") return null;
     const n = Number(String(raw).replace(",", "."));
     return Number.isFinite(n) ? Math.trunc(n) : null;
   };
 
-  // Normalizar cabeceras a minúsculas y sin espacios extra
-  const normalizeKeys = (row) => {
-    const obj = {};
-    for (const k in row) {
-      obj[k.trim().toLowerCase()] = row[k];
-    }
-    return obj;
-  };
-
-  const rows = datos.map(normalizeKeys);
-
-  const mapeados = rows
-    .map((r) => ({
-      CodigoEmpresa: 1,
-      Matricula:    clean(r["matricula"], 20),
-      Marca:        clean(r["marca"], 50),
-      Modelo:       clean(r["model"], 50),
-      RemolqActual: toBit(r["remolq actual"]),
-      RemolqSimon:  toBit(r["remolq simon"]),
-      CREM:         toInt(r["crem"]),
-      // Si algún día añades más columnas en Excel, aquí las recoges también
-    }))
-    .filter((x) => x.Matricula);
-
-  console.log("🚚 Remolques a importar:", mapeados.length);
+  // Encabezados esperados en tu CSV/Excel (separados por ;) :
+  // Matrícula;Marca;Model;Remolq Actual;Remolq Simon;CREM;PORTABOBINES;ELEVABLE
+  const rows = datos; // ya parseado arriba
+  const mapeados = rows.map(r => ({
+    CodigoEmpresa: 1,
+    Matricula: clean(r["Matrícula"] ?? r["Matricula"], 20),
+    Marca:     clean(r["Marca"], 50),
+    Modelo:    clean(r["Model"] ?? r["Modelo"], 50),
+    RemolqActual:  toBit(r["Remolq Actual"]),
+    RemolqSimon:   toBit(r["Remolq Simon"]),
+    CREM:          toInt(r["CREM"]),
+    Portabobines:  toBit(r["PORTABOBINES"]),
+    Elevable:      toBit(r["ELEVABLE"]),
+  })).filter(x => x.Matricula); // exige matrícula
 
   for (const f of mapeados) {
     const req = pool.request();
@@ -506,6 +495,8 @@ if (
     req.input("RemolqActual", sql.Bit, f.RemolqActual);
     req.input("RemolqSimon", sql.Bit, f.RemolqSimon);
     req.input("CREM", sql.Int, f.CREM);
+    req.input("Portabobines", sql.Bit, f.Portabobines);
+    req.input("Elevable", sql.Bit, f.Elevable);
 
     const upsertRemolque = `
 MERGE dbo.Remolques AS target
@@ -516,7 +507,9 @@ USING (SELECT
   @Modelo AS Modelo,
   @RemolqActual AS RemolqActual,
   @RemolqSimon AS RemolqSimon,
-  @CREM AS CREM
+  @CREM AS CREM,
+  @Portabobines AS Portabobines,
+  @Elevable AS Elevable
 ) AS source
 ON target.CodigoEmpresa = source.CodigoEmpresa
 AND target.Matricula = source.Matricula
@@ -525,12 +518,14 @@ WHEN MATCHED THEN UPDATE SET
   Modelo = source.Modelo,
   RemolqActual = source.RemolqActual,
   RemolqSimon = source.RemolqSimon,
-  CREM = source.CREM
+  CREM = source.CREM,
+  Portabobines = source.Portabobines,
+  Elevable = source.Elevable
 WHEN NOT MATCHED THEN INSERT (
-  CodigoEmpresa, Matricula, Marca, Modelo, RemolqActual, RemolqSimon, CREM
+  CodigoEmpresa, Matricula, Marca, Modelo, RemolqActual, RemolqSimon, CREM, Portabobines, Elevable
 ) VALUES (
   source.CodigoEmpresa, source.Matricula, source.Marca, source.Modelo,
-  source.RemolqActual, source.RemolqSimon, source.CREM
+  source.RemolqActual, source.RemolqSimon, source.CREM, source.Portabobines, source.Elevable
 );
 `;
     await req.query(upsertRemolque);
