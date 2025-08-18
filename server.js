@@ -6,7 +6,7 @@ const app = express();
 
 /** CORS: permite llamadas desde Vite (5173) */
 app.use(cors({
-  origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+  origin: ["http://localhost:5173", "http://127.0.0.1:5173","https://backendrender-5gzn.onrender.com"],
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type"],
 }));
