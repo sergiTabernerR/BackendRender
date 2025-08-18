@@ -471,38 +471,31 @@ if (
     return Number.isFinite(n) ? Math.trunc(n) : null;
   };
 
-  // Función para normalizar cabeceras
-  const normalize = (s) =>
-    (s || "")
-      .toString()
-      .normalize("NFD")                // elimina tildes
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[’']/g, "i")           // arregla comillas raras
-      .trim()
-      .toLowerCase();
-
-  // Normalizar todas las filas antes de mapear
-  const rows = datos.map((row) => {
-    const normalizado = {};
-    for (const [k, v] of Object.entries(row)) {
-      normalizado[normalize(k)] = v;
+  // Normalizar cabeceras a minúsculas y sin espacios extra
+  const normalizeKeys = (row) => {
+    const obj = {};
+    for (const k in row) {
+      obj[k.trim().toLowerCase()] = row[k];
     }
-    return normalizado;
-  });
+    return obj;
+  };
+
+  const rows = datos.map(normalizeKeys);
 
   const mapeados = rows
     .map((r) => ({
       CodigoEmpresa: 1,
       Matricula:    clean(r["matricula"], 20),
       Marca:        clean(r["marca"], 50),
-      Modelo:       clean(r["model"] ?? r["modelo"], 50),
+      Modelo:       clean(r["model"], 50),
       RemolqActual: toBit(r["remolq actual"]),
       RemolqSimon:  toBit(r["remolq simon"]),
       CREM:         toInt(r["crem"]),
-      Portabobines: toBit(r["portabobines"]),
-      Elevable:     toBit(r["elevable"]),
+      // Si algún día añades más columnas en Excel, aquí las recoges también
     }))
-    .filter((x) => x.Matricula); // exige matrícula
+    .filter((x) => x.Matricula);
+
+  console.log("🚚 Remolques a importar:", mapeados.length);
 
   for (const f of mapeados) {
     const req = pool.request();
@@ -513,8 +506,6 @@ if (
     req.input("RemolqActual", sql.Bit, f.RemolqActual);
     req.input("RemolqSimon", sql.Bit, f.RemolqSimon);
     req.input("CREM", sql.Int, f.CREM);
-    req.input("Portabobines", sql.Bit, f.Portabobines);
-    req.input("Elevable", sql.Bit, f.Elevable);
 
     const upsertRemolque = `
 MERGE dbo.Remolques AS target
@@ -525,9 +516,7 @@ USING (SELECT
   @Modelo AS Modelo,
   @RemolqActual AS RemolqActual,
   @RemolqSimon AS RemolqSimon,
-  @CREM AS CREM,
-  @Portabobines AS Portabobines,
-  @Elevable AS Elevable
+  @CREM AS CREM
 ) AS source
 ON target.CodigoEmpresa = source.CodigoEmpresa
 AND target.Matricula = source.Matricula
@@ -536,14 +525,12 @@ WHEN MATCHED THEN UPDATE SET
   Modelo = source.Modelo,
   RemolqActual = source.RemolqActual,
   RemolqSimon = source.RemolqSimon,
-  CREM = source.CREM,
-  Portabobines = source.Portabobines,
-  Elevable = source.Elevable
+  CREM = source.CREM
 WHEN NOT MATCHED THEN INSERT (
-  CodigoEmpresa, Matricula, Marca, Modelo, RemolqActual, RemolqSimon, CREM, Portabobines, Elevable
+  CodigoEmpresa, Matricula, Marca, Modelo, RemolqActual, RemolqSimon, CREM
 ) VALUES (
   source.CodigoEmpresa, source.Matricula, source.Marca, source.Modelo,
-  source.RemolqActual, source.RemolqSimon, source.CREM, source.Portabobines, source.Elevable
+  source.RemolqActual, source.RemolqSimon, source.CREM
 );
 `;
     await req.query(upsertRemolque);
